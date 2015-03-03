@@ -487,7 +487,7 @@ static int write_user_stack(int fdout, fullcontext_s *fc, char *buffer,
 /****************************************************************************
  * commit
  ****************************************************************************/
-static int hardfaults_commit(char *caller)
+static int hardfault_commit(char *caller)
 {
   int ret = -ENOENT;
   int state = -1;
@@ -513,7 +513,7 @@ static int hardfaults_commit(char *caller)
                   if (fdout > 0) {
                       identify(caller);
                       syslog(LOG_INFO, "Saving Fault Log file %s\n",path);
-                      ret = write_hardfault(caller, fdout, HARDFAULT_FILE_FORMAT, true);
+                      ret = hardfault_write(caller, fdout, HARDFAULT_FILE_FORMAT, true);
                       identify(caller);
                       syslog(LOG_INFO, "Done saving Fault Log file\n");
                       close(fdout);
@@ -530,9 +530,9 @@ static int hardfaults_commit(char *caller)
  * Public Functions
  ****************************************************************************/
 /****************************************************************************
- * rearm_hardfaults
+ * hardfault_rearm
  ****************************************************************************/
-__EXPORT int rearm_hardfaults(char *caller)
+__EXPORT int hardfault_rearm(char *caller)
 {
   int ret = OK;
   int rv = unlink(HARDFAULT_PATH);
@@ -548,9 +548,9 @@ __EXPORT int rearm_hardfaults(char *caller)
 }
 
 /****************************************************************************
- * check_hardfault_satus
+ * hardfault_check_status
  ****************************************************************************/
-__EXPORT int check_hardfault_satus(char *caller)
+__EXPORT int hardfault_check_status(char *caller)
 {
   int state = -1;
   struct bbsramd_s desc;
@@ -580,7 +580,7 @@ __EXPORT int check_hardfault_satus(char *caller)
                 identify(caller);
                 syslog(LOG_INFO, "Fault Logged on %s - Valid\n",buf);
             } else {
-                rv = rearm_hardfaults(caller);
+                rv = hardfault_rearm(caller);
                 if (rv < 0) {
                     ret = rv;
                 }
@@ -591,11 +591,34 @@ __EXPORT int check_hardfault_satus(char *caller)
 }
 
 /****************************************************************************
- * check_hardfault_satus
+ * hardfault_increment_reboot
+ ****************************************************************************/
+__EXPORT int hardfault_increment_reboot(char *caller, bool reset)
+{
+  int ret = -EIO;
+  int count = 0;
+  int fd = open(HARDFAULT_REBOOT_PATH, O_RDWR | O_CREAT);
+  if (fd < 0) {
+      identify(caller);
+      syslog(LOG_INFO, "Failed to open Fault reboot count file [%s] (%d)\n", HARDFAULT_REBOOT_PATH, ret);
+  } else {
+      if (!reset) {
+          read(fd, &count, sizeof(count));
+          lseek(fd, 0, SEEK_SET);
+          count++;
+      }
+      ret = write(fd, &count, sizeof(count));
+      close(fd);
+      ret = count;
+  }
+  return ret;
+}
+/****************************************************************************
+ * hardfault_write
  ****************************************************************************/
 fullcontext_s dump;
 
-__EXPORT int write_hardfault(char *caller, int fd, int format, bool rearm)
+__EXPORT int hardfault_write(char *caller, int fd, int format, bool rearm)
 {
     char line[200];
     memset(&dump,0,sizeof(dump));
@@ -644,7 +667,8 @@ __EXPORT int write_hardfault(char *caller, int fd, int format, bool rearm)
               write_dump_footer(caller, fd, &desc.lastwrite,line, arraySize(line));
 
               if (rearm) {
-                  ret = rearm_hardfaults(caller);
+                  ret = hardfault_rearm(caller);
+
               }
            }
         }
@@ -660,19 +684,35 @@ __EXPORT int hardfault_log_main(int argc, char *argv[])
         char *self = "hardfault_log";
 
         if (!strcmp(argv[1], "check")) {
-             return check_hardfault_satus(self);
+
+            return hardfault_check_status(self);
+
         } else if (!strcmp(argv[1], "rearm")) {
-             return rearm_hardfaults(self);
+
+            return hardfault_rearm(self);
+
         } else if (!strcmp(argv[1], "fault")) {
+
             int fault = 0;
             if (argc > 2) {
                 fault = atol(argv[2]);
             }
             return genfault(fault);
-        } else  if (!strcmp(argv[1], "commit")) {
-             return hardfaults_commit(self);
-        }
 
-        fprintf(stderr, "unrecognised command, try 'check' ,'rearm' , 'fault' or 'commit'\n");
+        } else  if (!strcmp(argv[1], "commit")) {
+
+            return hardfault_commit(self);
+
+        } else  if (!strcmp(argv[1], "count")) {
+
+            return hardfault_increment_reboot(self,false);
+
+          } else  if (!strcmp(argv[1], "reset")) {
+
+              return hardfault_increment_reboot(self,true);
+
+          }
+
+        fprintf(stderr, "unrecognised command, try 'check' ,'rearm' , 'fault', 'count', 'reset' or 'commit'\n");
         return -EINVAL;
 }

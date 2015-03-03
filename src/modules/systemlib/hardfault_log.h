@@ -45,11 +45,13 @@
 #define STRINGIFY(s) FREEZE_STR(s)
 #define HARDFAULT_FILENO 3
 #define HARDFAULT_PATH BBSRAM_PATH""STRINGIFY(HARDFAULT_FILENO)
+#define HARDFAULT_REBOOT_FILENO 0
+#define HARDFAULT_REBOOT_PATH BBSRAM_PATH""STRINGIFY(HARDFAULT_REBOOT_FILENO)
 
 
-#define BBSRAM_SIZE_FN0 1
-#define BBSRAM_SIZE_FN1 256
-#define BBSRAM_SIZE_FN2 256
+#define BBSRAM_SIZE_FN0 (sizeof(int))
+#define BBSRAM_SIZE_FN1 384     /* greater then 2.5 times the size of vehicle_status_s */
+#define BBSRAM_SIZE_FN2 384     /* greater then 2.5 times the size of vehicle_status_s */
 #define BBSRAM_SIZE_FN3 -1
 
 /* The following guides in the amount of the user and interrupt stack
@@ -283,7 +285,7 @@ typedef struct {
 } fullcontext_s;
 
 /****************************************************************************
- * Name: check_hardfault_satus
+ * Name: hardfault_check_status
  *
  * Description:
  *      Check the status of the BBSRAM hard fault file which can be in
@@ -305,10 +307,10 @@ typedef struct {
  *   -  Any < 0 Broken - Should not happen
  *
  ****************************************************************************/
-int check_hardfault_satus(char *caller);
+int hardfault_check_status(char *caller);
 
 /****************************************************************************
- * Name: write_hardfault
+ * Name: hardfault_write
  *
  * Description:
  *      Will parse and write a human readable output of the data
@@ -334,10 +336,10 @@ int check_hardfault_satus(char *caller);
  *
  *
  ****************************************************************************/
-int write_hardfault(char *caller, int fd, int format, bool rearm);
+int hardfault_write(char *caller, int fd, int format, bool rearm);
 
 /****************************************************************************
- * Name: rearm_hardfaults
+ * Name: hardfault_rearm
  *
  * Description:
  *      Will move the file to the Armed state
@@ -352,7 +354,27 @@ int write_hardfault(char *caller, int fd, int format, bool rearm);
  *
  *
  ****************************************************************************/
-int rearm_hardfaults(char *caller);
+int hardfault_rearm(char *caller);
+
+/****************************************************************************
+ * Name: hardfault_increment_reboot
+ *
+ * Description:
+ *      Will increment the reboot counter. The reboot counter will help
+ *      detect reboot loops.
+ *
+ *
+ * Inputs:
+ *   - caller:  A label to display in syslog output
+ *   - reset :  when set will reset the reboot counter to 0.
+ *
+ *  Returned Value:
+ *
+ *    The current value of the reboot counter (post increment).
+ *
+ *
+ ****************************************************************************/
+int hardfault_increment_reboot(char *caller, bool reset);
 
 #if defined(__cplusplus)
 extern "C"
