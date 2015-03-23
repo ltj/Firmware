@@ -138,6 +138,7 @@ __BEGIN_DECLS
 #define PX4_I2C_BUS_EXPANSION	1
 #define PX4_I2C_BUS_ONBOARD	2
 #define PX4_I2C_BUS_LED		PX4_I2C_BUS_ONBOARD
+#define PX4_I2C_BUS_TEENSY	4
 
 /* Devices on the onboard bus.
  *
@@ -145,6 +146,7 @@ __BEGIN_DECLS
  */
 #define PX4_I2C_OBDEV_LED	0x55
 #define PX4_I2C_OBDEV_HMC5883	0x1e
+#define PX4_I2C_OBDEV_TEENSY	0x44
 
 /* User GPIOs
  *
