@@ -21,6 +21,7 @@
 #include <ctype.h>
 
 #include <nuttx/wqueue.h>
+#include <nuttx/clock.h>
 
 #include <systemlib/perf_counter.h>
 #include <systemlib/err.h>
@@ -30,6 +31,10 @@
 
 #include <drivers/drv_teensysense.h>
 
+#ifndef CONFIG_SCHED_WORKQUEUE
+# error This requires CONFIG_SCHED_WORKQUEUE.
+#endif
+
 #define ADDR			PX4_I2C_OBDEV_TEENSY	/**< I2C adress of Teensy 3.x slave */
 #define CMD_HELLO		0x40
 
@@ -37,7 +42,7 @@
 class TEENSYSENSE : public device::I2C
 {
 public:
-	TEENSYSENSE(int bus, int rgbled);
+	TEENSYSENSE(int bus, int teensysense);
 	virtual ~TEENSYSENSE();
 
 
@@ -53,8 +58,8 @@ private:
 	bool			_running;
 	bool			_should_run;
 
-	static void		teensy_trampoline(void *arg);
-	void			teensy();
+	static void		cycle_trampoline(void *arg);
+	void			cycle();
 };
 
 
@@ -90,7 +95,6 @@ TEENSYSENSE::init()
 	}
 
 	warnx("Teensy initialized");
-	start();
 
 	return OK;
 }
@@ -114,32 +118,41 @@ TEENSYSENSE::info()
 int
 TEENSYSENSE::ioctl(struct file *filp, int cmd, unsigned long arg)
 {
-	int ret = OK;
+	int ret = -EINVAL;
+
+	switch (cmd) {
+		case TEENSY_SENSOR_START:
+			start();
+			ret = OK;
+		default:
+			ret = CDev::ioctl(filp, cmd, arg);
+	}
+
 	return ret;
 }
 
 void
 TEENSYSENSE::start()
 {
-	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::teensy_trampoline, this, 1);
+	warnx("Scheduling cycle");
+	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, 5);
 }
 
 
 void
-TEENSYSENSE::teensy_trampoline(void *arg)
+TEENSYSENSE::cycle_trampoline(void *arg)
 {
+	
 	TEENSYSENSE *dev = (TEENSYSENSE *)arg;
 
-	if (g_teensysense != nullptr) {
-		dev->teensy();
-	}
+	dev->cycle();
 }
 
 /**
  * Main loop function
  */
 void
-TEENSYSENSE::teensy()
+TEENSYSENSE::cycle()
 {
 	// if (!_should_run) {
 	// 	_running = false;
@@ -148,10 +161,11 @@ TEENSYSENSE::teensy()
 
 	// TODO: do something by default
 	warnx("This is where the Teensy kicks in");
+	debug("This is where the Teensy kicks in");
 
 	/* re-queue ourselves to run again later */
 	_running = true;
-	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::teensy_trampoline, this, 1000);
+	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, USEC2TICK(1000000));
 }
 
 void
@@ -159,7 +173,7 @@ teensysense_usage()
 {
 	warnx("missing command: try 'start', 'test', 'info'");
 	warnx("options:");
-	warnx("    -b i2cbus (%d)", PX4_I2C_BUS_TEENSY);
+	warnx("    -b i2cbus (%d)", PX4_I2C_BUS_EXPANSION);
 	warnx("    -a addr (0x%x)", ADDR);
 }
 
@@ -203,8 +217,7 @@ teensysense_main(int argc, char *argv[])
 			errx(1, "already started");
 
 		if (i2cdevice == -1) {
-			// try the external bus first
-			i2cdevice = PX4_I2C_BUS_TEENSY;
+			i2cdevice = PX4_I2C_BUS_EXPANSION;
 			g_teensysense = new TEENSYSENSE(PX4_I2C_BUS_EXPANSION, teensyadr);
 
 			if (g_teensysense != nullptr && OK != g_teensysense->init()) {
@@ -213,11 +226,7 @@ teensysense_main(int argc, char *argv[])
 			}
 
 			if (g_teensysense == nullptr) {
-				// fall back to default bus
-				if (PX4_I2C_BUS_TEENSY == PX4_I2C_BUS_EXPANSION) {
-					errx(1, "init failed");
-				}
-				i2cdevice = PX4_I2C_BUS_TEENSY;
+				errx(1, "init failed");
 			}
 		}
 
@@ -233,6 +242,13 @@ teensysense_main(int argc, char *argv[])
 				errx(1, "init failed");
 			}
 		}
+
+		fd = open(TEENSY0_DEVICE_PATH, 0);
+		if (fd == -1) {
+			errx(1, "Unable to open " TEENSY0_DEVICE_PATH);
+		}
+		ret = ioctl(fd, TEENSY_SENSOR_START, 0);
+		close(fd);
 		exit(0);
 	}
 
@@ -244,7 +260,7 @@ teensysense_main(int argc, char *argv[])
 	}
 
 	if (!strcmp(verb, "test")) {
-		fd = open(TEENSY0_DEVICE_PATH, 0);
+		fd = open(TEENSY0_DEVICE_PATH, O_RDONLY);
 
 		if (fd == -1) {
 			errx(1, "Unable to open " TEENSY0_DEVICE_PATH);
