@@ -148,13 +148,13 @@ void
 TEENSYSENSE::start()
 {
 	warnx("Scheduling cycle");
-	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, 5);
+	work_queue(LPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, 5);
 }
 
 void
 TEENSYSENSE::stop()
 {
-	work_cancel(HPWORK, &_work);
+	work_cancel(LPWORK, &_work);
 }
 
 void
@@ -183,7 +183,7 @@ TEENSYSENSE::cycle()
 
 	/* re-queue ourselves to run again later */
 	_running = true;
-	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, USEC2TICK(1000000));
+	work_queue(LPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, USEC2TICK(1000000));
 }
 
 int

@@ -114,6 +114,10 @@ if ll40ls start
 then
 fi
 
+if teensysense start
+then
+fi
+
 #
 # Start sensors -> preflight_check
 #
