@@ -29,3 +29,9 @@ struct teensy_sensor_report {
 
 #define TEENSY_SENSOR_START	_TEENSYIOC(1)
 
+#define TEENSY_SENSOR_STOP  _TEENSYIOC(2)
+
+#define TEENSY_SENSOR_TEST  _TEENSYIOC(3)
+
+#define TEENSY_SENSOR_READ  _TEENSYIOC(4)
+

@@ -36,8 +36,10 @@
 #endif
 
 #define ADDR			PX4_I2C_OBDEV_TEENSY	/**< I2C adress of Teensy 3.x slave */
-#define CMD_HELLO		0x40
-
+#define CMD_MEASURE		0x10
+#define CMD_COLLECT		0x11
+#define CMD_TEST		0x40
+#define TEENSY_CONVERSION_INTERVAL	(100000)	/* microseconds */
 
 class TEENSYSENSE : public device::I2C
 {
@@ -45,12 +47,9 @@ public:
 	TEENSYSENSE(int bus, int teensysense);
 	virtual ~TEENSYSENSE();
 
-
 	virtual int		init();
-	virtual int		probe();
-	virtual int		info();
+	virtual ssize_t	read(struct file *filp, char *buffer, size_t buflen);
 	virtual int		ioctl(struct file *filp, int cmd, unsigned long arg);
-	virtual void	start();
 
 private:
 	work_s			_work;
@@ -58,8 +57,16 @@ private:
 	bool			_running;
 	bool			_should_run;
 
+	struct teensy_sensor_report _report;
+
+	void			start();
+	void			stop();
 	static void		cycle_trampoline(void *arg);
 	void			cycle();
+	int				test();
+	void			readSingle();
+	void			measure();
+	void 			collect();
 };
 
 
@@ -100,22 +107,6 @@ TEENSYSENSE::init()
 }
 
 int
-TEENSYSENSE::probe()
-{
-	// uint8_t val;
-	// return get(val);
-	int ret = OK;
-	return ret;
-}
-
-int
-TEENSYSENSE::info()
-{
-	int ret = OK;
-	return ret;
-}
-
-int
 TEENSYSENSE::ioctl(struct file *filp, int cmd, unsigned long arg)
 {
 	int ret = -EINVAL;
@@ -124,11 +115,33 @@ TEENSYSENSE::ioctl(struct file *filp, int cmd, unsigned long arg)
 		case TEENSY_SENSOR_START:
 			start();
 			ret = OK;
+			break;
+		case TEENSY_SENSOR_STOP:
+			stop();
+			ret = OK;
+			break;
+		case TEENSY_SENSOR_TEST:
+			warnx("Starting test");
+			ret = test();
+			break;
+		case TEENSY_SENSOR_READ:
+			warnx("Requesting single value");
+			readSingle();
+			ret = OK;
+			break;
 		default:
 			ret = CDev::ioctl(filp, cmd, arg);
+			break;
 	}
 
 	return ret;
+}
+
+ssize_t
+TEENSYSENSE::read(struct file *filp, char *buffer, size_t buflen)
+{
+	memcpy(&_report, buffer, sizeof(struct teensy_sensor_report));
+	return sizeof(struct teensy_sensor_report);
 }
 
 void
@@ -138,6 +151,11 @@ TEENSYSENSE::start()
 	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, 5);
 }
 
+void
+TEENSYSENSE::stop()
+{
+	work_cancel(HPWORK, &_work);
+}
 
 void
 TEENSYSENSE::cycle_trampoline(void *arg)
@@ -159,19 +177,62 @@ TEENSYSENSE::cycle()
 	// 	return;
 	// }
 
-	// TODO: do something by default
-	warnx("This is where the Teensy kicks in");
-	debug("This is where the Teensy kicks in");
+	measure();
+	usleep(TEENSY_CONVERSION_INTERVAL);
+	collect();
 
 	/* re-queue ourselves to run again later */
 	_running = true;
 	work_queue(HPWORK, &_work, (worker_t)&TEENSYSENSE::cycle_trampoline, this, USEC2TICK(1000000));
 }
 
+int
+TEENSYSENSE::test()
+{
+	const uint8_t msg = CMD_TEST;
+	uint8_t buf[4];
+	// uint8_t addr = ADDR;
+	warnx("Probing test register...");
+	int result = transfer(&msg, 1, buf, 1);
+	if (result == OK) {
+		warnx("That went well!");
+		warnx("The answer to life, the universe and everything: %d", buf[0]);
+	}
+	else {
+		warnx("Oh no! No answer :(");
+	}
+
+	return result;
+}
+
+void
+TEENSYSENSE::readSingle()
+{
+	warnx("Read single value: %d", _report.value);
+}
+
+void
+TEENSYSENSE::collect()
+{
+	const uint8_t cmd = CMD_COLLECT;
+	uint8_t buf[2];
+	transfer(&cmd, 1, buf, 2);
+	int16_t result = ((buf[0] << 8) | buf[1]);
+	_report.type = TEENSY_SENSOR_TYPE_TEST;
+	_report.value = result;
+}
+
+void
+TEENSYSENSE::measure()
+{
+	const uint8_t cmd = CMD_MEASURE;
+	transfer(&cmd, 1, nullptr, 0);
+}
+
 void
 teensysense_usage()
 {
-	warnx("missing command: try 'start', 'test', 'info'");
+	warnx("missing command: try 'start', 'test', 'read'");
 	warnx("options:");
 	warnx("    -b i2cbus (%d)", PX4_I2C_BUS_EXPANSION);
 	warnx("    -a addr (0x%x)", ADDR);
@@ -266,17 +327,23 @@ teensysense_main(int argc, char *argv[])
 			errx(1, "Unable to open " TEENSY0_DEVICE_PATH);
 		}
 
-		//TODO: perform test here
-		// ret = ioctl(fd, RGBLED_SET_MODE, (unsigned long)RGBLED_MODE_PATTERN);
-		ret = OK;
+		ret = ioctl(fd, TEENSY_SENSOR_TEST, 0);;
 
 		close(fd);
 		exit(ret);
 	}
 
-	if (!strcmp(verb, "info")) {
-		g_teensysense->info();
-		exit(0);
+	if (!strcmp(verb, "read")) {
+		fd = open(TEENSY0_DEVICE_PATH, O_RDONLY);
+
+		if (fd == -1) {
+			errx(1, "Unable to open " TEENSY0_DEVICE_PATH);
+		}
+
+		ret = ioctl(fd, TEENSY_SENSOR_READ, 0);;
+
+		close(fd);
+		exit(ret);
 	}
 
 	teensysense_usage();
