@@ -9,6 +9,7 @@
 #include <nuttx/config.h>
 
 #include <drivers/device/i2c.h>
+#include <drivers/device/device.h>
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -140,8 +141,9 @@ TEENSYSENSE::ioctl(struct file *filp, int cmd, unsigned long arg)
 ssize_t
 TEENSYSENSE::read(struct file *filp, char *buffer, size_t buflen)
 {
-	memcpy(&_report, buffer, sizeof(struct teensy_sensor_report));
-	return sizeof(struct teensy_sensor_report);
+	struct teensy_sensor_report *teensy_buf = reinterpret_cast<struct teensy_sensor_report *>(buffer);
+	memcpy(teensy_buf, &_report, buflen);
+	return sizeof(*teensy_buf);
 }
 
 void
@@ -195,7 +197,7 @@ TEENSYSENSE::test()
 	warnx("Probing test register...");
 	int result = transfer(&msg, 1, buf, 1);
 	if (result == OK) {
-		warnx("That went well!");
+		warnx("That went super well!");
 		warnx("The answer to life, the universe and everything: %d", buf[0]);
 	}
 	else {
